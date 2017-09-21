@@ -1,0 +1,2 @@
+model_checkpoint_path: "lstm_default.ckpt-5000"
+all_model_checkpoint_paths: "lstm_default.ckpt-5000"
