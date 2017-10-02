@@ -154,8 +154,6 @@ class dataFile:
                 test_label.append(curr_label)
                 start_index = start_index + self.step_size
             test_mat.extend(curr_clip)
-        print (np.array(test_mat).shape)
-        print (np.array(test_label).shape)
         return test_mat, test_label
 
 
@@ -173,6 +171,22 @@ class dataFile:
             sindex = eindex + self.step_size
             eindex = sindex + self.window_size
         return window_data, label
+
+
+    def genSlidingWindowData(self, data):
+        dataClip = data
+        window_data = []
+        curr_window = []
+        sindex = 0
+        eindex = sindex + self.window_size
+        while(eindex < len(dataClip)):
+            curr_window = dataClip[sindex:eindex]
+            window_data.append(curr_window)
+            curr_window = []
+            sindex = eindex + self.step_size
+            eindex = sindex + self.window_size
+        return window_data
+
 
 
 

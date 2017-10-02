@@ -2,6 +2,8 @@ import tensorflow as tf
 import numpy as np
 import dataImport
 from tensorflow.contrib import rnn
+from sklearn import svm
+import pickle
 
 class LSTM_Model(object):
     def __init__(self, ckpt_path = ''):
@@ -64,28 +66,53 @@ class LSTM_Model(object):
         return sess
 
     def predict(self, sess, test_data):
+
         if not sess:
-            # create a session
-            sess = tf.Session()
-            # init all variables
-            sess.run(tf.global_variables_initializer())
+            sess = self.restore_last_session()
         feed_data = test_data
         out = sess.run(self.outputs, feed_dict= {self.input:feed_data})
         pred_logits = tf.matmul(out[-1], self.weights['out']) + self.biases['out']
         pred = tf.nn.softmax(pred_logits)
         return sess.run(pred)
 
+    def genSVMTrainData(self):
+        sess = self.restore_last_session()
+        train_size = len(self.train_set.label_vec)
+        label_set = []
+        data_set = []
+        for i in range(0, train_size):
+            print ("Current Progress : " + str(i) + " in " + str(train_size))
+            curr_clip = []
+            window_gen, label_gen = self.train_set.genSlidingWindowBatch(i)
+            if np.array(window_gen).shape[1:] == (30,3):
+                for win in window_gen:
+                    win = np.expand_dims(win, axis=0)
+                    pred_res = self.predict(sess=sess, test_data=win)
+                    curr_clip.append(np.argmax(pred_res))
+                label_set.append(label_gen)
+                data_set.append(curr_clip)
+
+            else:
+                print (window_gen)
+        with open('dataprocessed', 'wb') as pickle_file:
+            pickle.dump(data_set, pickle_file)
+        with open('labelprocessed', 'wb') as pickle2_file:
+            pickle.dump(label_set, pickle2_file)
+        return data_set, label_set
 
 
-    def train(self, sess=None):
+    def train(self, sess=None, resume = True):
         # we need to save the model periodically
         saver = tf.train.Saver()
         # if no session is given
         if not sess:
-            # create a session
-            sess = tf.Session()
-            # init all variables
-            sess.run(tf.global_variables_initializer())
+            if resume == True:
+                sess = self.restore_last_session()
+            else:
+                # create a session
+                sess = tf.Session()
+                # init all variables
+                sess.run(tf.global_variables_initializer())
         # run M epochs
         for i in range(self.training_steps):
             try:
@@ -103,48 +130,53 @@ class LSTM_Model(object):
         saver.save(sess, "./" + self.model_name + '.ckpt', global_step=self.training_steps)
 
 
+    def test_result(self, sess=None):
+        if not sess:
+            sess = self.restore_last_session()
+        conf_mat = np.zeros((6, 6))
+        for i in range(len(self.train_set.test_data)):
+            clip = self.train_set.test_data[i]
+            gtruth = self.train_set.test_label[i]
+            datawindows = self.train_set.genSlidingWindowData(clip)
+            pred = self.predict(sess, datawindows)
+            total = np.zeros((1, 6))
+            for p in pred:
+                total = total + p
+            pred_test = np.argmax(total)
+            gtruth_index = np.argmax(gtruth)
+            conf_mat[gtruth_index][pred_test] = conf_mat[gtruth_index][pred_test] + 1
+
+        TP = np.zeros((6, 1))
+        FP = np.zeros((6, 1))
+        FN = np.zeros((6, 1))
+        NumEle = np.zeros((6, 1))
+
+        for i in range(0, 6):
+            TP[i] = conf_mat[i][i] + TP[i]
+            NumEle[i] = sum(conf_mat[i])
+
+        for i in range(0, 6):
+            for j in range(0, 6):
+                if i != j:
+                    FP[i] = conf_mat[i][j] + FP[i]
+                    FN[j] = conf_mat[i][j] + FN[j]
+
+        pre = np.divide(TP * 1.0, (TP + FP))
+        rec = np.divide(TP, (FN + TP))
+        F1 = 2 * np.divide((np.multiply(pre, rec)), (pre + rec))
+        acc = np.divide(TP, NumEle)
+
+        print("F1 score is: " + str(np.average(F1)))
+        print("Recall is: " + str(np.average(rec)))
+        print("Precision is: " + str(np.average(pre)))
+        print ("Accuracy is: " + str(np.average(acc)))
+        print(conf_mat)
+
+
 model = LSTM_Model()
 #model.train()
-sess = model.restore_last_session()
-data = dataImport.dataFile(batch_size=40, window_size=30, step_size=5)
-data.init_dataset()
-tdata, tlabel = data.get_test_set()
-print(data.__data_stats__(tlabel))
-pred = model.predict(sess, tdata)
-conf_mat = np.zeros((6,6))
-print (pred.shape)
-acc_count = 0
-res = np.zeros(pred.shape)
+#model.test_result()
 
-for i in range(pred.shape[0]):
-    pred_in = np.argmax(pred[i])
-    actual_in = np.argmax(tlabel[i])
-    conf_mat[actual_in][pred_in] = conf_mat[actual_in][pred_in] + 1
-
-TP = np.zeros((6,1))
-FP = np.zeros((6,1))
-FN = np.zeros((6,1))
-NumEle = np.zeros((6,1))
-
-for i in range(0,6):
-    TP[i] = conf_mat[i][i] + TP[i]
-    NumEle[i] = sum(conf_mat[i])
-
-for i in range(0,6):
-    for j in range(0,6):
-        if i!=j:
-            FP[i] = conf_mat[i][j] + FP[i]
-            FN[j] = conf_mat[i][j] + FN[j]
-
-pre = np.divide(TP*1.0,(TP+FP))
-rec = np.divide(TP, (FN + TP))
-F1 = 2*np.divide((np.multiply(pre, rec)), (pre + rec))
-acc = np.divide(TP, NumEle)
-
-print("F1 score is: " + str(np.average(F1)))
-print("Recall is: " + str(np.average(rec)))
-print("Precision is: " + str(np.average(pre)))
-print (conf_mat)
 
 
 

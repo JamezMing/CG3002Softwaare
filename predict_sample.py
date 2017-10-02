@@ -6,7 +6,6 @@ dataset = dataImport.dataFile(batch_size=40, window_size=30, step_size=5)
 dataset.init_dataset()
 data = dataset.alldata
 label = dataset.alllabel
-
 model = LSTMWrapper.LSTM_Model()
 sess = model.restore_last_session()
 data = dataImport.dataFile(batch_size=40, window_size=30, step_size=5)
